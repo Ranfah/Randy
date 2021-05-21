@@ -1,9 +1,21 @@
 //Declaration et initialisation de tout les modules a utiliser dans le programmes
-const http = require('http');
-const formidable = require('formidable');
-const fs = require('fs');
-const path = require('path');
-const extra_fs = require('fs-extra');
+var finalhandler = require('finalhandler')
+var serveIndex = require('serve-index')
+var serveStatic = require('serve-static')
+
+
+const express = require('express')
+
+var index = serveIndex('clickable_files/', {'icons': true})
+// Serve up public/ftp folder files
+var serve = serveStatic('clickable_files/')
+
+var http = require('http');
+var formidable = require('formidable');
+var fs = require('fs');
+var path = require('path');
+var extra_fs = require('fs-extra');
+var port = process.env.port || 8080
 //Declaration des variables globales
 var FILE_NAME = ''; //variable pour stocker le nom de fichier a traiter
 var OUTPUT_FILE_NAME = ''; //variable pour stocker le nom de fichier traiter qui sort dans le dossier redacted files
@@ -13,16 +25,20 @@ var pdfpath_redacted; // variable pour le nom de chaque fichier traités + le mo
 var pdfpath_clickable; // variable pour le nom de chaque fichier traités + le mot clickable
 var Time = 0; //Variable time pour un time quoi
 var numBtn = 1; //Variable numbtn a utiliser pour le numero de button (a voir dans la fonction button_redacted)
-var redacted_files_directory = "./redacted_files"; //variable pour le dossier a vider a chaque fois que le programme commence a traiter un dossier selectionné
-var clickable_files_directory = "./clickable_files"; //variable pour le dossier a vider a chaque fois que le programme commence a traiter un dossier selectionné
 
-const PORT = process.env.PORT || 8080
+var dir_home = process.env [process.platform =="win32"?"USERPROFILE":"HOME"];
+var dir_desktop = require("path").join(dir_home, "Desktop","Download");
+
+var redacted_files_directory = require("path").join(dir_home, "Desktop","Redacted");; //variable pour le dossier a vider a chaque fois que le programme commence a traiter un dossier selectionné
+var clickable_files_directory = require("path").join(dir_home, "Desktop","Clickable");; //variable pour le dossier a vider a chaque fois que le programme commence a traiter un dossier selectionné
+
 // fonction pour ecrire dans un fichier progress.txt (utile pour le loading sur l'interface)
 function progress(value) {
     let fs = require('fs');
     return fs.writeFileSync('./public/progress.txt', `${value}`);
 }
-http.createServer(function(req, res) {
+
+http.createServer(function (req, res) {
     
     //Quand l'utilisateur click sur le bouton traitement l'url / fileupload va etre demander
     if (req.url == '/fileupload') {
@@ -41,6 +57,7 @@ http.createServer(function(req, res) {
             if (file.type === 'application/pdf')
                 selected_files.push(file);
         });
+
         form.parse(req, async function(err, fields, files) {
             if (fields.btn1 == '') {
                 //Demarrage du traitement
@@ -55,14 +72,14 @@ http.createServer(function(req, res) {
                     HTML('/load', './public/load.html');
                     for (let file of selected_files) {
                         if (file !== undefined) {
-                            setTimeout(async() => {
+                            setTimeout(async () => {
 
                                 let arr = file.name.split('/');
                                 FILE_NAME = arr[arr.length - 1];
                                 OUTPUT_FILE_NAME = FILE_NAME.split('.pdf')[0] + '_redacted.pdf';
                                 OUTPUT_FILE_NAME_CLICK = FILE_NAME.split('.pdf')[0] + '_clickable.pdf';
-                                pdfpath_redacted = `./redacted_files/${OUTPUT_FILE_NAME}`;
-                                pdfpath_clickable = `./clickable_files/${OUTPUT_FILE_NAME_CLICK}`;
+                                pdfpath_redacted = path.join(redacted_files_directory,OUTPUT_FILE_NAME)
+                                pdfpath_clickable = path.join(clickable_files_directory,OUTPUT_FILE_NAME_CLICK);
                                 await create_redaction(file.path); //une fonction pour traiter un fichier
                             }, Time); //Une fonction setTimeout de 10 seconde pour s'assurrer que le traitement du fichier soit bien fini (un fichier = 20 seconde)
                             //NB: Sur cette fonction si un ou plusieurs fichiers presente des champs non traitéés, il faudra augmenter le time
@@ -71,7 +88,7 @@ http.createServer(function(req, res) {
                     }
                     let current_nbr_file = 0; //variable pour compter les fichiers deja traites
                     const counter = setInterval(() => {
-                        fs.readdir('./clickable_files', function(err, files) {
+                        fs.readdir(clickable_files_directory, function(err, files) {
                             if (files.length != current_nbr_file) {
                                 console.log(files.length + (!(files.length > 1) ? ' fichier traité' : ' fichiers traités'));
                                 progress(files.length); //Ecrire le nombre de fichier traités dans progress.txt
@@ -98,7 +115,8 @@ http.createServer(function(req, res) {
                 res.end();
             }
         });
-    } else {
+    }
+    else {
         if (req.url === "/") {
             fs.readFile("./public/index.html", "UTF-8", function(err, data) {
                 res.writeHead(200, { 'Content-Type': 'text/html' });
@@ -135,30 +153,63 @@ http.createServer(function(req, res) {
             fileStream.pipe(res);
         }
     }
-}).listen(PORT); // port pour appeler le serveur app.js
+}).listen(process.env.port || 8080); // port pour appeler le serveur app.js
 
 // PDF REDACTION
 const { PDFNet } = require('@pdftron/pdfnet-node');
-var mysql = require('mysql');
 const { Console } = require('console');
+
 async function create_redaction(pdffile) {
-    //Pattern1 : pattern pour le numero de telephone en Belgique
+//Pattern1 : pattern pour le numero de telephone en Belgique
     let pattern1 = "[+]3{1}2{1}+[ ]{0,1}+[.]{0,1}+[-]{0,1}+\\d{1}+[ ]{0,1}+[.]{0,1}+[-]{0,1}+\\d{3}+[ ]{0,1}+[-]{0,1}+[.]{0,1}+\\d{2}+[ ]{0,1}+[.]{0,1}+[-]{0,1}+\\d{2}+\\d{0,1}";
     await search_redact(pattern1);
-    //Pattern2 : pattern pour l'email 
+
+//Pattern2 : pattern pour l'email 
     let pattern2 = "[a-zA-Z0-9._%+-]+[a-zA-Z0-9._%+-]+@[A-z]+[a-zA-Z0-9._%+-]+[a-zA-Z]";
     await search_redact(pattern2);
-    //Pattern 3 : pattern pour le numero tva
-    let pattern3 = "[A-Z]{2}[ ]{0,1}[0-9]{4}[^A-Za-z0-9_]{0,1}[0-9]{3}[^A-Za-z0-9_]{0,1}[0-9]{3}";
-    await search_redact(pattern3);
-    //Pattern 4: pattern pour le IBAN
-    let pattern4 = "[A-Z]{2}[0-9]{2}[ ]{0,1}[0-9]{4}[ ]{0,1}[0-9]{4}[ ][0-9]{4}[ ][A-Z0-9]{8}";
-    await search_redact(pattern4);
-    //Pattern 5 : pattern IBAN2
-    let pattern5 = "[A-Z]{2}[0-9]{14}";
-    await search_redact(pattern5);
-    //pattern 6 : pattern adresse 
     
+//IBAN PATERN : patern pour reconnaitre le code IBAN 
+    let iban_patern ="[A-Z]{2}[ ]{0,1}[0-9]{2}[ ]{0,1}[0-9 ]{11,30}";
+    await search_redact(iban_patern);
+
+//TVA PATERN : patern pour reconnaitre le TVA
+// let tva_patern = "[A-Z]{2}+[ ]{0,1}+[0-9]{4}+[ ]{0,1}+[0-9]{3}+[ ]{0,1}+[0-9]{3}";
+    let tva_patern = "[A-Z]{2}[ ]{0,1}[0-9]{4}[^A-Za-z0-9_]{0,1}[0-9]{3}[^A-Za-z0-9_]{0,1}[0-9]{3}";
+    await search_redact(tva_patern);
+
+//adress PATERN : patern pour reconnaitre le l'adresse
+    let codeform2 = "([1-9]{1}[0-9]{3}[ ]{0,1}[A-Z]{1}[A-Za-z]{2,12})";
+    let codeform1 = "[A-Z]{2}+[-]+[0-9]{4}+[ ]+[A-Z]{1,}";
+    await search_redact(codeform1);
+    await search_redact(codeform2);
+
+//patern numero permis de conduire
+    const permis = /[1-9]{2}[ .]{0,1}(?:1[0-2]|0[0-9]{1})[ .]{0,1}[0-9]{2}[ .]{0,1}[0-9]{2}[ .]{0,1}[0-9]{4}/g
+    await search_redact(permis);
+//patern numero CIN
+    const cin = /[0-9]{2}[.](?:1[0-2]|0[0-9]{1})[.](?:3[0-1]|0[1-9]{1}|2[0-9]{1})-[0-9]{3}[.][0-9]{2}/g
+    await search_redact(cin);
+//identificaiton employer
+    const employer = /\b(?:[1-9]{1}[0-9]{11})\b/g
+    await search_redact(employer);
+//identification passport
+    const passport = /\b(?:[A-Z]{2}[0-9]{6})\b/g
+    await search_redact(passport);
+//numero voiture
+    const numVoiture = /\b(?:[1-8]{1}[-][A-Y]{1}[A-Z]{2}[-][0-9]{3})\b/g
+    await search_redact(numVoiture);
+//NIV voiture
+    const nivVehicule = /\b(?:(?:[0-9]|[A-H]|[J-N]|[P]|[R-Z]){8}(?:[0-9]|[X]){1}(?:[1-9]|[A-H]|[J-N]|[P]|[R-T]|[V-Y]){1}(?:[0-9]|[A-H]|[J-N]|[P]|[R-Z]){1}[0-9]{6})\b/g
+    await search_redact(nivVehicule);
+//url patern
+    let url_patern = "(?:[https:\/\/www.|http:\/\/www.|https:\/\/|http:\/\/|www]+[.]+[a-zA-Z0-9._%+-\/]+[a-zA-Z0-9._%+-])"
+    await search_redact(url_patern);
+
+   
+    //patern pour une ville a belge
+    // let ville = "\w+[0-9][ ]{1}\w+[A-Za-z]$";
+    // await search_redact(ville);
+
     var inputPath_redacted = pdffile; // pdf a chercher
     var inputPath_clickable = pdffile; // pdf a chercher
     //Fonction pour chercher un mot dans le pdf
@@ -170,7 +221,7 @@ async function create_redaction(pdffile) {
                 doc.lock();
                 const txtSearch = await PDFNet.TextSearch.create();
                 let mode = (PDFNet.TextSearch.Mode.e_whole_word | PDFNet.TextSearch.Mode.e_highlight) + PDFNet.TextSearch.Mode.e_reg_expression;
-                txtSearch.begin(doc, pattern, mode);
+                txtSearch.begin(doc,pattern, mode);
                 let result = await txtSearch.run();
                 while (true) {
 
@@ -219,9 +270,9 @@ async function create_redaction(pdffile) {
                                 redactionArray.push(await PDFNet.Redactor.redactionCreate(page_num, (await PDFNet.Rect.init(x1, y1, x2, y2)), false, ''));
                                 const appear = {};
                                 appear.redaction_overlay = true;
-                                const black = await PDFNet.ColorPt.init(0.0, 0.0, 0.0, 0);
-                                appear.positive_overlay_color = black;
-                                appear.border = false;
+                                //const greenColorPt = await PDFNet.ColorPt.init(0, 0, 1, 0);
+                                //appear.positive_overlay_color = greenColorPt;
+                                appear.border = true;
                                 const timesFont = await PDFNet.Font.create(doc, PDFNet.Font.StandardType1Font.e_times_roman);
                                 appear.font = timesFont;
                                 appear.show_redacted_content_regions = true;
@@ -247,15 +298,18 @@ async function create_redaction(pdffile) {
 
                         const main = async() => {
                             try {
+                               
                                 const doc = await PDFNet.PDFDoc.createFromFilePath(inputPath_clickable);
                                 doc.initSecurityHandler();
                                 const blankPage = await doc.getPage(page_num);
 
                                 const btn_field = await doc.fieldCreate("button." + numBtn, PDFNet.Field.Type.e_button);
-                                const btnbox = await PDFNet.PushButtonWidget.createWithField(doc, await PDFNet.Rect.init(x1, y1, x2, y2), btn_field);
-                                btnbox.setBackgroundColor(await PDFNet.ColorPt.init(0, 0, 0), 1);
+                                const btnbox = await (await PDFNet.PushButtonWidget.createWithField(doc, await PDFNet.Rect.init(x1, y1, x2, y2), btn_field))
                                 fields = ["button." + numBtn];
-                                await btnbox.setAction(await PDFNet.Action.createHideField(doc, fields));
+                                await btnbox.setAction(await PDFNet.Action.createHideField(doc, fields))
+                                await btnbox.setBackgroundColor(await PDFNet.ColorPt.init(1, 0, 1), 3);
+                                //await btnbox.setMouseDownCaptionText("my text")
+                                
                                 btnbox.refreshAppearance();
                                 blankPage.annotPushBack(btnbox);
 
